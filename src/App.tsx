@@ -27,7 +27,7 @@ import { AdminLoginModal } from './components/AdminLoginModal';
 import { ToastContainer, ToastMessage } from './components/Toast';
 import { getStateFromLocation, generateShareableUrl } from './utils/shareUtils';
 import { saveLocalDashboardState, getLocalDashboardState } from './utils/storage';
-import { saveFirebaseDashboardState, getFirebaseDashboardState } from './utils/firebaseStorage';
+import { saveFirebaseDashboardState, getFirebaseDashboardState, saveUploadedDatasetToFirebase } from './utils/firebaseStorage';
 import { db, doc, onSnapshot } from './lib/firebase';
 
 const STORAGE_KEY_PAGES = 'peta_senada_dashboard_pages_v1';
@@ -955,6 +955,7 @@ export default function App() {
 
       isInitialServerLoadDone.current = true;
       saveStateToServer(updatedPages, targetActivePageId);
+      saveUploadedDatasetToFirebase(resolvedTitle, targetActivePageId, sheetResult.columns, sheetResult.rows, 'url');
 
       return { success: true };
     } catch (err: any) {
@@ -1107,6 +1108,7 @@ export default function App() {
 
       isInitialServerLoadDone.current = true;
       saveStateToServer(updatedPages, targetActivePageId);
+      saveUploadedDatasetToFirebase(datasetName, targetActivePageId, data.columns, data.rows, sourceType);
     } catch (err: any) {
       addToast('error', 'Gagal Impor Data', err.message?.includes('Gagal upload') ? err.message : `Gagal upload: Format kolom tidak sesuai (${err.message})`);
     }
