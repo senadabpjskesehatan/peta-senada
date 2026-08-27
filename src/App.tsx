@@ -191,8 +191,9 @@ export default function App() {
     return found || pages[0] || createDefaultPage();
   }, [pages, activePageId]);
 
-  // Keep IndexedDB & localStorage updated on every page change
+  // Keep IndexedDB & localStorage updated on every page change (ONLY AFTER INITIAL LOAD DONE)
   useEffect(() => {
+    if (!isInitialServerLoadDone.current || isReceivingServerUpdate.current) return;
     saveLocalDashboardState(pages, activePage.id, localVersionTimestamp.current);
   }, [pages, activePage.id]);
 
@@ -201,11 +202,14 @@ export default function App() {
     try {
       setCloudSyncStatus('saving');
       
-      // 1. Save locally to IndexedDB & localStorage
-      await saveLocalDashboardState(pagesToSave, activeId, localVersionTimestamp.current);
+      const newVersion = Date.now();
+      localVersionTimestamp.current = newVersion;
 
-      // 2. Save directly to Firebase Firestore
-      await saveFirebaseDashboardState(pagesToSave, activeId, localVersionTimestamp.current);
+      // 1. Save locally to IndexedDB & localStorage
+      await saveLocalDashboardState(pagesToSave, activeId, newVersion);
+
+      // 2. Save directly to Firebase Firestore (Primary Cloud Master Baseline)
+      await saveFirebaseDashboardState(pagesToSave, activeId, newVersion, true);
 
       // 3. Save to server disk endpoint
       const res = await fetch('/api/dashboard/save', {
@@ -215,6 +219,7 @@ export default function App() {
         body: JSON.stringify({
           pages: pagesToSave,
           activePageId: activeId,
+          version: newVersion,
           updatedBy: 'client',
         }),
       });
@@ -224,7 +229,6 @@ export default function App() {
         if (data.version) {
           localVersionTimestamp.current = data.version;
           saveLocalDashboardState(pagesToSave, activeId, data.version);
-          saveFirebaseDashboardState(pagesToSave, activeId, data.version);
         }
       }
 
@@ -253,51 +257,58 @@ export default function App() {
 
         if (!isMounted) return;
 
-        // Compare available states by version timestamp
-        const candidates: { pages: DashboardPage[]; activePageId: string; version: number; source: string }[] = [];
+        // Firebase Firestore is our master baseline source of truth
+        const firebaseHasData = firebaseState && Array.isArray(firebaseState.pages) && firebaseState.pages.length > 0;
+        const localHasData = localState && Array.isArray(localState.pages) && localState.pages.length > 0 && localState.version > 0;
+        const serverHasData = serverRes && serverRes.success && Array.isArray(serverRes.pages) && serverRes.pages.length > 0;
 
-        if (firebaseState && Array.isArray(firebaseState.pages) && firebaseState.pages.length > 0) {
-          candidates.push({
-            pages: firebaseState.pages,
-            activePageId: firebaseState.activePageId || 'page-1',
-            version: firebaseState.version || 0,
-            source: 'firebase',
-          });
+        let selectedPages: DashboardPage[] | null = null;
+        let selectedActiveId = 'page-1';
+        let selectedVersion = 0;
+
+        if (firebaseHasData) {
+          // Priority 1: Firebase Firestore master state
+          selectedPages = firebaseState.pages;
+          selectedActiveId = firebaseState.activePageId || 'page-1';
+          selectedVersion = firebaseState.version || Date.now();
+
+          // Check if local or server has a strictly newer version from an active edit session
+          if (localHasData && localState.version > selectedVersion) {
+            selectedPages = localState.pages;
+            selectedActiveId = localState.activePageId || 'page-1';
+            selectedVersion = localState.version;
+            // Sync newer local data to Firebase
+            saveFirebaseDashboardState(selectedPages, selectedActiveId, selectedVersion, true);
+          } else if (serverHasData && serverRes.version > selectedVersion) {
+            selectedPages = serverRes.pages;
+            selectedActiveId = serverRes.activePageId || 'page-1';
+            selectedVersion = serverRes.version;
+            // Sync newer server data to Firebase
+            saveFirebaseDashboardState(selectedPages, selectedActiveId, selectedVersion, true);
+          }
+        } else if (localHasData && localState.version > 0) {
+          // Priority 2: Local storage if Firebase is clean
+          selectedPages = localState.pages;
+          selectedActiveId = localState.activePageId || 'page-1';
+          selectedVersion = localState.version;
+          saveFirebaseDashboardState(selectedPages, selectedActiveId, selectedVersion, true);
+        } else if (serverHasData) {
+          // Priority 3: Server disk backup if Firebase is clean
+          selectedPages = serverRes.pages;
+          selectedActiveId = serverRes.activePageId || 'page-1';
+          selectedVersion = serverRes.version || Date.now();
+          saveFirebaseDashboardState(selectedPages, selectedActiveId, selectedVersion, true);
         }
 
-        if (localState && Array.isArray(localState.pages) && localState.pages.length > 0) {
-          candidates.push({
-            pages: localState.pages,
-            activePageId: localState.activePageId || 'page-1',
-            version: localState.version || 0,
-            source: 'local',
-          });
-        }
-
-        if (serverRes && serverRes.success && Array.isArray(serverRes.pages) && serverRes.pages.length > 0) {
-          candidates.push({
-            pages: serverRes.pages,
-            activePageId: serverRes.activePageId || 'page-1',
-            version: serverRes.version || 0,
-            source: 'server',
-          });
-        }
-
-        if (candidates.length > 0) {
-          // Sort candidates descending by version
-          candidates.sort((a, b) => b.version - a.version);
-          const best = candidates[0];
-
+        if (selectedPages && selectedPages.length > 0) {
           isReceivingServerUpdate.current = true;
-          setPages(best.pages);
-          if (best.activePageId) setActivePageId(best.activePageId);
-          localVersionTimestamp.current = best.version || Date.now();
+          setPages(selectedPages);
+          if (selectedActiveId) setActivePageId(selectedActiveId);
+          localVersionTimestamp.current = selectedVersion;
 
-          // Sync best data to all layers
-          saveLocalDashboardState(best.pages, best.activePageId, best.version);
-          saveFirebaseDashboardState(best.pages, best.activePageId, best.version);
+          saveLocalDashboardState(selectedPages, selectedActiveId, selectedVersion);
         } else {
-          // All empty -> save initial default page to Firebase & local & server
+          // All cloud & local persistence are empty -> save initial default sample page to Firebase & Server
           await saveStateToServer(pages, activePageId);
         }
 

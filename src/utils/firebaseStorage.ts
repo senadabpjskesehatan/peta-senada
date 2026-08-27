@@ -9,6 +9,7 @@ export interface FirebaseDashboardState {
   updatedAt: string;
   activePageId: string;
   pages: DashboardPage[];
+  isUploadedBaseline?: boolean;
 }
 
 /**
@@ -17,7 +18,8 @@ export interface FirebaseDashboardState {
 export async function saveFirebaseDashboardState(
   pages: DashboardPage[],
   activePageId: string,
-  version?: number
+  version?: number,
+  isUploadedBaseline: boolean = true
 ): Promise<FirebaseDashboardState | null> {
   try {
     const payload: FirebaseDashboardState = {
@@ -25,6 +27,7 @@ export async function saveFirebaseDashboardState(
       updatedAt: new Date().toISOString(),
       activePageId,
       pages,
+      isUploadedBaseline,
     };
 
     const docRef = doc(db, COLLECTION_NAME, DOC_ID);
