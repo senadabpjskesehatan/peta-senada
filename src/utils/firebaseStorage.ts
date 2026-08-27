@@ -1,4 +1,4 @@
-import { db, doc, setDoc, getDoc } from '../lib/firebase';
+import { db, doc, setDoc, getDoc, collection, getDocs, query, orderBy, limit } from '../lib/firebase';
 import { DashboardPage, ColumnDef, SheetRow } from '../types';
 
 const COLLECTION_NAME = 'dashboard_states';
@@ -10,6 +10,18 @@ export interface FirebaseDashboardState {
   activePageId: string;
   pages: DashboardPage[];
   isUploadedBaseline?: boolean;
+}
+
+export interface UploadedDatasetRecord {
+  id: string;
+  fileName: string;
+  pageId: string;
+  sourceType: 'csv' | 'excel' | 'url';
+  rowCount: number;
+  columnCount: number;
+  columns: ColumnDef[];
+  rows?: SheetRow[];
+  uploadedAt: string;
 }
 
 /**
@@ -60,7 +72,8 @@ export async function saveUploadedDatasetToFirebase(
 ): Promise<boolean> {
   try {
     const fileId = `upload_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const payload = sanitizeForFirestore({
+    
+    const rawPayload = {
       id: fileId,
       fileName,
       pageId,
@@ -70,15 +83,54 @@ export async function saveUploadedDatasetToFirebase(
       columns,
       rows,
       uploadedAt: new Date().toISOString(),
-    });
+    };
 
-    const docRef = doc(db, 'uploaded_datasets', fileId);
-    await setDoc(docRef, payload);
-    console.log('[FIREBASE] Berhasil mengunggah file dataset ke Firestore:', fileName);
+    const cleanPayload = sanitizeForFirestore(rawPayload);
+    const payloadString = JSON.stringify(cleanPayload);
+
+    // If payload exceeds Firestore doc limit (~800KB), truncate rows in master doc and log metadata
+    if (payloadString.length > 800000) {
+      console.warn('[FIREBASE] Dataset besar (>800KB), menyimpan metadata dan sampel baris ke Firestore...');
+      const truncatedPayload = sanitizeForFirestore({
+        ...rawPayload,
+        rows: rows.slice(0, 1000), // Keep first 1000 rows in history document
+        isTruncated: true,
+      });
+      await setDoc(doc(db, 'uploaded_datasets', fileId), truncatedPayload);
+    } else {
+      const docRef = doc(db, 'uploaded_datasets', fileId);
+      await setDoc(docRef, cleanPayload);
+    }
+
+    console.log('[FIREBASE] Berhasil mencatat file upload di Firestore:', fileName);
     return true;
   } catch (err) {
     console.error('[FIREBASE] Gagal mengunggah file dataset ke Firestore:', err);
     return false;
+  }
+}
+
+/**
+ * Get history of uploaded dataset records from Firebase Firestore
+ */
+export async function getUploadedDatasetsFromFirebase(maxCount = 20): Promise<UploadedDatasetRecord[]> {
+  try {
+    const q = query(
+      collection(db, 'uploaded_datasets'),
+      orderBy('uploadedAt', 'desc'),
+      limit(maxCount)
+    );
+    const snap = await getDocs(q);
+    const records: UploadedDatasetRecord[] = [];
+    snap.forEach((docSnap) => {
+      if (docSnap.exists()) {
+        records.push(docSnap.data() as UploadedDatasetRecord);
+      }
+    });
+    return records;
+  } catch (err) {
+    console.warn('[FIREBASE] Warning reading uploaded datasets list:', err);
+    return [];
   }
 }
 

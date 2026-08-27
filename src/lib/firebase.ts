@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAnalytics, isSupported } from "firebase/analytics";
-import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDoc, onSnapshot, collection, getDocs, query, orderBy, limit } from "firebase/firestore";
 import firebaseConfig from "../../firebase-applet-config.json";
 
 // Initialize Firebase App
@@ -20,5 +20,5 @@ const databaseId = firebaseConfig.firestoreDatabaseId && firebaseConfig.firestor
 
 export const db = getFirestore(app, databaseId);
 
-export { doc, setDoc, getDoc, onSnapshot };
+export { doc, setDoc, getDoc, onSnapshot, collection, getDocs, query, orderBy, limit };
 
