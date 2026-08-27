@@ -23,6 +23,7 @@ import { GoogleSheetConnectModal } from './components/GoogleSheetConnectModal';
 import { AIInsightsModal } from './components/AIInsightsModal';
 import { ShareNetworkModal } from './components/ShareNetworkModal';
 import { IndonesiaMapCard } from './components/IndonesiaMapCard';
+import { AdminLoginModal } from './components/AdminLoginModal';
 import { ToastContainer, ToastMessage } from './components/Toast';
 import { getStateFromLocation, generateShareableUrl } from './utils/shareUtils';
 
@@ -96,6 +97,62 @@ export default function App() {
     return 'page-1';
   });
 
+  // Admin Mode State (User: senada, Pass: 150bisa)
+  const [isAdmin, setIsAdmin] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('peta_senada_is_admin') === 'true';
+    } catch (e) {}
+    return false;
+  });
+  const [isAdminLoginModalOpen, setIsAdminLoginModalOpen] = useState(false);
+
+  const handleAdminLoginSuccess = () => {
+    setIsAdmin(true);
+    try {
+      localStorage.setItem('peta_senada_is_admin', 'true');
+    } catch (e) {}
+    addToast('success', 'Mode Admin Aktif', 'Selamat datang, Admin (senada)! Semua fitur penambahan & pengeditan telah dibuka.');
+  };
+
+  const handleLogoutAdmin = () => {
+    setIsAdmin(false);
+    try {
+      localStorage.setItem('peta_senada_is_admin', 'false');
+    } catch (e) {}
+    addToast('info', 'Mode Tamu (View-Only)', 'Anda telah keluar dari Mode Admin. Aplikasi kembali ke fitur tampilan.');
+  };
+
+  // Helper guard to require Admin login for editing/adding operations
+  const requireAdmin = useCallback((actionDescription: string, callback: (...args: any[]) => void) => {
+    return (...args: any[]) => {
+      if (!isAdmin) {
+        addToast('info', 'Akses Admin Diperlukan', `Silakan login sebagai Admin (senada) untuk ${actionDescription}.`);
+        setIsAdminLoginModalOpen(true);
+        return;
+      }
+      callback(...args);
+    };
+  }, [isAdmin]);
+
+  // Desktop Sidebar Visibility State
+  const [isSidebarVisible, setIsSidebarVisible] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('peta_senada_sidebar_visible');
+      if (saved !== null) return saved === 'true';
+    } catch (e) {}
+    return true;
+  });
+
+  const handleToggleSidebar = () => {
+    setIsSidebarVisible((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('peta_senada_sidebar_visible', String(next));
+      } catch (e) {}
+      return next;
+    });
+  };
+
   // Theme Mode State (Light / Dark)
   const [themeMode, setThemeMode] = useState<'light' | 'dark'>(() => {
     try {
@@ -123,7 +180,7 @@ export default function App() {
   
   const isInitialServerLoadDone = useRef(false);
   const isReceivingServerUpdate = useRef(false);
-  const localVersionTimestamp = useRef<number>(Date.now());
+  const localVersionTimestamp = useRef<number>(0);
 
   // Ensure active page is valid
   const activePage = useMemo(() => {
@@ -741,6 +798,9 @@ export default function App() {
         syncStatus: 'success',
       };
 
+      let updatedPages = pages;
+      let targetActivePageId = activePageId;
+
       if (createNewPage) {
         const newPageId = `page-${Date.now()}`;
         const newPage: DashboardPage = {
@@ -763,21 +823,33 @@ export default function App() {
           updatedAt: new Date().toISOString(),
         };
 
-        setPages((prev) => [...prev, newPage]);
-        setActivePageId(newPageId);
+        updatedPages = [...pages, newPage];
+        targetActivePageId = newPageId;
+        setPages(updatedPages);
+        setActivePageId(targetActivePageId);
         addToast('success', 'Halaman Baru Terhubung!', `Halaman "${resolvedTitle}" (${sheetResult.rows.length} baris) berhasil dibuat dan disinkronkan.`);
       } else {
         // Update current page
-        updateActivePage((prev) => ({
-          ...prev,
-          title: customName?.trim() ? customName.trim() : prev.title === 'Ringkasan Utama' || prev.title === 'Lembar Kerja Kosong' ? resolvedTitle : prev.title,
-          columns: sheetResult.columns,
-          rows: sheetResult.rows,
-          charts: generatedCharts,
-          syncConfig: newSyncConf,
-        }));
+        updatedPages = pages.map((p) => {
+          if (p.id === activePage.id) {
+            return {
+              ...p,
+              title: customName?.trim() ? customName.trim() : p.title === 'Ringkasan Utama' || p.title === 'Lembar Kerja Kosong' ? resolvedTitle : p.title,
+              columns: sheetResult.columns,
+              rows: sheetResult.rows,
+              charts: generatedCharts,
+              syncConfig: newSyncConf,
+              updatedAt: new Date().toISOString(),
+            };
+          }
+          return p;
+        });
+        setPages(updatedPages);
         addToast('success', 'Google Sheet Terhubung!', `Berhasil memuat "${resolvedTitle}" (${sheetResult.rows.length} baris data) ke halaman ini.`);
       }
+
+      isInitialServerLoadDone.current = true;
+      saveStateToServer(updatedPages, targetActivePageId);
 
       return { success: true };
     } catch (err: any) {
@@ -855,6 +927,9 @@ export default function App() {
         syncStatus: 'success',
       };
 
+      let updatedPages = pages;
+      let targetActivePageId = activePageId;
+
       if (createNewPage) {
         const newPageId = `page-${Date.now()}`;
         const newPage: DashboardPage = {
@@ -877,39 +952,56 @@ export default function App() {
           updatedAt: new Date().toISOString(),
         };
 
-        setPages((prev) => [...prev, newPage]);
-        setActivePageId(newPageId);
+        updatedPages = [...pages, newPage];
+        targetActivePageId = newPageId;
+        setPages(updatedPages);
+        setActivePageId(targetActivePageId);
         addToast('success', `Halaman Baru (${sourceType.toUpperCase()})`, `Halaman "${datasetName}" (${data.rows.length} baris) berhasil dibuat.`);
       } else {
         if (importMode === 'append') {
-          updateActivePage((prev) => {
-            const existingColKeys = new Set(prev.columns.map(c => c.key));
-            const newCols = data.columns.filter(c => !existingColKeys.has(c.key));
-            const combinedColumns = [...prev.columns, ...newCols];
-            const appendedRows = [
-              ...prev.rows,
-              ...data.rows.map((r, idx) => ({ ...r, _id: `row-appended-${Date.now()}-${idx}` }))
-            ];
-            return {
-              ...prev,
-              columns: combinedColumns,
-              rows: appendedRows,
-              syncConfig: syncConf,
-            };
+          updatedPages = pages.map((p) => {
+            if (p.id === activePage.id) {
+              const existingColKeys = new Set(p.columns.map(c => c.key));
+              const newCols = data.columns.filter(c => !existingColKeys.has(c.key));
+              const combinedColumns = [...p.columns, ...newCols];
+              const appendedRows = [
+                ...p.rows,
+                ...data.rows.map((r, idx) => ({ ...r, _id: `row-appended-${Date.now()}-${idx}` }))
+              ];
+              return {
+                ...p,
+                columns: combinedColumns,
+                rows: appendedRows,
+                syncConfig: syncConf,
+                updatedAt: new Date().toISOString(),
+              };
+            }
+            return p;
           });
+          setPages(updatedPages);
           addToast('success', 'Data Berhasil Ditambahkan', `Menambahkan ${data.rows.length} baris baru ke halaman aktif.`);
         } else {
-          updateActivePage((prev) => ({
-            ...prev,
-            title: datasetName,
-            columns: data.columns,
-            rows: data.rows,
-            charts: generatedCharts,
-            syncConfig: syncConf,
-          }));
+          updatedPages = pages.map((p) => {
+            if (p.id === activePage.id) {
+              return {
+                ...p,
+                title: datasetName,
+                columns: data.columns,
+                rows: data.rows,
+                charts: generatedCharts,
+                syncConfig: syncConf,
+                updatedAt: new Date().toISOString(),
+              };
+            }
+            return p;
+          });
+          setPages(updatedPages);
           addToast('success', `Data ${sourceType.toUpperCase()} Berhasil Dimuat`, `"${datasetName}" (${data.rows.length} baris data) menggantikan halaman aktif.`);
         }
       }
+
+      isInitialServerLoadDone.current = true;
+      saveStateToServer(updatedPages, targetActivePageId);
     } catch (err: any) {
       addToast('error', 'Gagal Impor Data', err.message?.includes('Gagal upload') ? err.message : `Gagal upload: Format kolom tidak sesuai (${err.message})`);
     }
@@ -1214,35 +1306,41 @@ export default function App() {
     <div className={`flex h-screen w-full bg-[#f8fafc] dark:bg-slate-950 text-slate-800 dark:text-slate-100 overflow-hidden font-sans ${themeMode}`}>
       
       {/* 1. Geometric Left Sidebar (Desktop fixed, Mobile drawer) */}
-      <div className="hidden lg:flex shrink-0">
-        <Sidebar
-          activeView={activeView}
-          onSelectView={setActiveView}
-          pages={pages}
-          activePageId={activePage.id}
-          onSelectPage={setActivePageId}
-          onAddPage={handleOpenAddPage}
-          onEditPage={handleOpenEditPage}
-          currentDatasetTitle={activePage.title}
-          activeDatasetId={activeDataset.id}
-          syncConfig={syncConfig}
-          rowCount={rows.length}
-          filteredCount={filteredData.length}
-          onSelectPreset={handleSelectPreset}
-          onOpenConnectModal={() => setIsConnectModalOpen(true)}
-          onOpenAIInsights={() => setIsAIInsightsOpen(true)}
-          onOpenChartBuilder={() => {
-            setEditingChart(null);
-            setIsChartBuilderOpen(true);
-          }}
-          onOpenRowModal={() => {
-            setEditingRow(null);
-            setIsRowModalOpen(true);
-          }}
-          onClearAllRows={handleClearAllRows}
-          onResetDataset={handleResetDataset}
-        />
-      </div>
+      {isSidebarVisible && (
+        <div className="hidden lg:flex shrink-0">
+          <Sidebar
+            activeView={activeView}
+            onSelectView={setActiveView}
+            pages={pages}
+            activePageId={activePage.id}
+            onSelectPage={setActivePageId}
+            onAddPage={requireAdmin('menambah halaman dashboard', handleOpenAddPage)}
+            onEditPage={requireAdmin('mengedit halaman', handleOpenEditPage)}
+            currentDatasetTitle={activePage.title}
+            activeDatasetId={activeDataset.id}
+            syncConfig={syncConfig}
+            rowCount={rows.length}
+            filteredCount={filteredData.length}
+            onSelectPreset={requireAdmin('memuat template preset', handleSelectPreset)}
+            onOpenConnectModal={requireAdmin('menghubungkan Google Sheet', () => setIsConnectModalOpen(true))}
+            onOpenAIInsights={() => setIsAIInsightsOpen(true)}
+            onOpenChartBuilder={requireAdmin('membuat grafik', () => {
+              setEditingChart(null);
+              setIsChartBuilderOpen(true);
+            })}
+            onOpenRowModal={requireAdmin('menambah baris data', () => {
+              setEditingRow(null);
+              setIsRowModalOpen(true);
+            })}
+            onClearAllRows={requireAdmin('mengosongkan data', handleClearAllRows)}
+            onResetDataset={requireAdmin('mereset dataset', handleResetDataset)}
+            isAdmin={isAdmin}
+            onOpenAdminLogin={() => setIsAdminLoginModalOpen(true)}
+            onLogoutAdmin={handleLogoutAdmin}
+            onToggleSidebar={handleToggleSidebar}
+          />
+        </div>
+      )}
 
       {/* Mobile Drawer Sidebar */}
       {isMobileSidebarOpen && (
@@ -1264,43 +1362,52 @@ export default function App() {
                 setActivePageId(id);
                 setIsMobileSidebarOpen(false);
               }}
-              onAddPage={() => {
+              onAddPage={requireAdmin('menambah halaman dashboard', () => {
                 handleOpenAddPage();
                 setIsMobileSidebarOpen(false);
-              }}
-              onEditPage={(p) => {
+              })}
+              onEditPage={requireAdmin('mengedit halaman', (p) => {
                 handleOpenEditPage(p);
                 setIsMobileSidebarOpen(false);
-              }}
+              })}
               currentDatasetTitle={activePage.title}
               activeDatasetId={activeDataset.id}
               syncConfig={syncConfig}
               rowCount={rows.length}
               filteredCount={filteredData.length}
-              onSelectPreset={(p) => {
+              onSelectPreset={requireAdmin('memuat template preset', (p) => {
                 handleSelectPreset(p);
                 setIsMobileSidebarOpen(false);
-              }}
-              onOpenConnectModal={() => {
+              })}
+              onOpenConnectModal={requireAdmin('menghubungkan Google Sheet', () => {
                 setIsConnectModalOpen(true);
                 setIsMobileSidebarOpen(false);
-              }}
+              })}
               onOpenAIInsights={() => {
                 setIsAIInsightsOpen(true);
                 setIsMobileSidebarOpen(false);
               }}
-              onOpenChartBuilder={() => {
+              onOpenChartBuilder={requireAdmin('membuat grafik', () => {
                 setEditingChart(null);
                 setIsChartBuilderOpen(true);
                 setIsMobileSidebarOpen(false);
-              }}
-              onOpenRowModal={() => {
+              })}
+              onOpenRowModal={requireAdmin('menambah baris data', () => {
                 setEditingRow(null);
                 setIsRowModalOpen(true);
                 setIsMobileSidebarOpen(false);
+              })}
+              onClearAllRows={requireAdmin('mengosongkan data', handleClearAllRows)}
+              onResetDataset={requireAdmin('mereset dataset', handleResetDataset)}
+              isAdmin={isAdmin}
+              onOpenAdminLogin={() => {
+                setIsAdminLoginModalOpen(true);
+                setIsMobileSidebarOpen(false);
               }}
-              onClearAllRows={handleClearAllRows}
-              onResetDataset={handleResetDataset}
+              onLogoutAdmin={() => {
+                handleLogoutAdmin();
+                setIsMobileSidebarOpen(false);
+              }}
             />
           </div>
         </div>
@@ -1318,30 +1425,34 @@ export default function App() {
           filteredCount={filteredData.length}
           currentDatePreset={filters.datePreset}
           onSelectDatePreset={handleDatePreset}
-          onSelectPreset={handleSelectPreset}
-          onOpenConnectModal={() => setIsConnectModalOpen(true)}
-          onManualSync={() => performSync(activePage.id, false)}
+          onSelectPreset={requireAdmin('memuat template preset', handleSelectPreset)}
+          onOpenConnectModal={requireAdmin('menghubungkan Google Sheet', () => setIsConnectModalOpen(true))}
+          onManualSync={requireAdmin('memperbarui data sumber', () => performSync(activePage.id, false))}
           onOpenAIInsights={() => setIsAIInsightsOpen(true)}
-          onOpenChartBuilder={() => {
+          onOpenChartBuilder={requireAdmin('membuat grafik', () => {
             setEditingChart(null);
             setIsChartBuilderOpen(true);
-          }}
-          onOpenRowModal={() => {
+          })}
+          onOpenRowModal={requireAdmin('menambah baris data', () => {
             setEditingRow(null);
             setIsRowModalOpen(true);
-          }}
+          })}
           onExportCSV={handleExportCSV}
           onIntervalChange={(sec) =>
-            updateActivePage((prev) => ({
-              ...prev,
-              syncConfig: { ...prev.syncConfig, intervalSeconds: sec },
-            }))
+            requireAdmin('mengubah interval sync', () =>
+              updateActivePage((prev) => ({
+                ...prev,
+                syncConfig: { ...prev.syncConfig, intervalSeconds: sec },
+              }))
+            )()
           }
           onToggleAutoSync={(enabled) =>
-            updateActivePage((prev) => ({
-              ...prev,
-              syncConfig: { ...prev.syncConfig, autoSync: enabled },
-            }))
+            requireAdmin('mengubah mode sync otomatis', () =>
+              updateActivePage((prev) => ({
+                ...prev,
+                syncConfig: { ...prev.syncConfig, autoSync: enabled },
+              }))
+            )()
           }
           isMobileSidebarOpen={isMobileSidebarOpen}
           onToggleMobileSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
@@ -1353,6 +1464,11 @@ export default function App() {
           }}
           themeMode={themeMode}
           onToggleTheme={setThemeMode}
+          isAdmin={isAdmin}
+          onOpenAdminLogin={() => setIsAdminLoginModalOpen(true)}
+          onLogoutAdmin={handleLogoutAdmin}
+          isSidebarVisible={isSidebarVisible}
+          onToggleSidebar={handleToggleSidebar}
         />
 
         {/* 3. Dashboard Page Tab Navigation Bar */}
@@ -1360,12 +1476,12 @@ export default function App() {
           pages={pages}
           activePageId={activePage.id}
           onSelectPage={setActivePageId}
-          onAddPage={handleOpenAddPage}
-          onEditPage={handleOpenEditPage}
-          onRenamePage={handleRenamePage}
-          onDeletePage={handleDeletePage}
-          onDuplicatePage={handleDuplicatePage}
-          onSyncPage={(id) => performSync(id, false)}
+          onAddPage={requireAdmin('menambah halaman baru', handleOpenAddPage)}
+          onEditPage={requireAdmin('mengedit halaman', handleOpenEditPage)}
+          onRenamePage={requireAdmin('mengubah nama halaman', handleRenamePage)}
+          onDeletePage={requireAdmin('menghapus halaman', handleDeletePage)}
+          onDuplicatePage={requireAdmin('menduplikasi halaman', handleDuplicatePage)}
+          onSyncPage={requireAdmin('sinkronisasi halaman', (id) => performSync(id, false))}
           isMapVisible={isMapVisible}
           onToggleMap={() => {
             setIsMapVisible((prev) => {
@@ -1480,16 +1596,20 @@ export default function App() {
           charts={charts}
           rows={filteredData}
           onEditChart={(chart) => {
-            setEditingChart(chart);
-            setIsChartBuilderOpen(true);
+            requireAdmin('mengedit grafik visualisasi', () => {
+              setEditingChart(chart);
+              setIsChartBuilderOpen(true);
+            })();
           }}
-          onDuplicateChart={handleDuplicateChart}
-          onDeleteChart={handleDeleteChart}
-          onUpdateChart={handleUpdateChart}
-          onReorderCharts={handleReorderCharts}
+          onDuplicateChart={(chart) => requireAdmin('menduplikasi grafik', () => handleDuplicateChart(chart))()}
+          onDeleteChart={(chartId) => requireAdmin('menghapus grafik', () => handleDeleteChart(chartId))()}
+          onUpdateChart={(chart) => requireAdmin('memperbarui grafik', () => handleUpdateChart(chart))()}
+          onReorderCharts={(newCharts) => requireAdmin('mengatur urutan grafik', () => handleReorderCharts(newCharts))()}
           onAddChart={() => {
-            setEditingChart(null);
-            setIsChartBuilderOpen(true);
+            requireAdmin('menambah grafik visualisasi baru', () => {
+              setEditingChart(null);
+              setIsChartBuilderOpen(true);
+            })();
           }}
         />
 
@@ -1499,24 +1619,33 @@ export default function App() {
           rows={filteredData}
           allRowsCount={rows.length}
           onAddRow={() => {
-            setEditingRow(null);
-            setIsRowModalOpen(true);
+            requireAdmin('menambah baris data', () => {
+              setEditingRow(null);
+              setIsRowModalOpen(true);
+            })();
           }}
           onEditRow={(row) => {
-            setEditingRow(row);
-            setIsRowModalOpen(true);
+            requireAdmin('mengedit baris data', () => {
+              setEditingRow(row);
+              setIsRowModalOpen(true);
+            })();
           }}
-          onDuplicateRow={handleDuplicateRow}
-          onDeleteRow={handleDeleteRow}
-          onBulkDeleteRows={handleBulkDeleteRows}
-          onAddColumn={handleAddColumn}
+          onDuplicateRow={(row) => requireAdmin('menduplikasi baris data', () => handleDuplicateRow(row))()}
+          onDeleteRow={(rowId) => requireAdmin('menghapus baris data', () => handleDeleteRow(rowId))()}
+          onBulkDeleteRows={(selectedIds) => requireAdmin('menghapus beberapa baris data', () => handleBulkDeleteRows(selectedIds))()}
+          onAddColumn={(name, type) => requireAdmin('menambah kolom data baru', () => handleAddColumn(name, type))()}
           onExportCSV={handleExportCSV}
-          onClearAllRows={handleClearAllRows}
+          onClearAllRows={() => requireAdmin('mengosongkan data', () => handleClearAllRows())()}
         />
 
       </main>
 
       {/* Modals & Dialogs */}
+      <AdminLoginModal
+        isOpen={isAdminLoginModalOpen}
+        onClose={() => setIsAdminLoginModalOpen(false)}
+        onLoginSuccess={handleAdminLoginSuccess}
+      />
       <PageManagerModal
         isOpen={isPageModalOpen}
         onClose={() => {

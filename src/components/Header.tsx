@@ -14,7 +14,14 @@ import {
   Share2,
   Sun,
   Moon,
-  ChevronDown
+  ChevronDown,
+  ShieldCheck,
+  ShieldAlert,
+  LogOut,
+  Lock,
+  Eye,
+  PanelLeftOpen,
+  PanelLeftClose
 } from 'lucide-react';
 import { SyncConfig, DatasetPreset, FilterState } from '../types';
 import { PRESET_DATASETS } from '../data/sampleDatasets';
@@ -43,6 +50,11 @@ interface HeaderProps {
   onOpenShareModal?: () => void;
   themeMode: 'light' | 'dark';
   onToggleTheme: (theme: 'light' | 'dark') => void;
+  isAdmin?: boolean;
+  onOpenAdminLogin?: () => void;
+  onLogoutAdmin?: () => void;
+  isSidebarVisible?: boolean;
+  onToggleSidebar?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -69,6 +81,11 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenShareModal,
   themeMode,
   onToggleTheme,
+  isAdmin = false,
+  onOpenAdminLogin,
+  onLogoutAdmin,
+  isSidebarVisible = true,
+  onToggleSidebar,
 }) => {
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
   const themeMenuRef = useRef<HTMLDivElement>(null);
@@ -98,12 +115,51 @@ export const Header: React.FC<HeaderProps> = ({
           >
             {isMobileSidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
+
+          {/* Desktop Sidebar Toggle Button */}
+          {onToggleSidebar && (
+            <button
+              id="btn-toggle-desktop-sidebar-header"
+              type="button"
+              onClick={onToggleSidebar}
+              className="hidden lg:flex p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors shadow-xs items-center gap-2 text-xs font-bold cursor-pointer active:scale-95"
+              title={isSidebarVisible ? "Sembunyikan Sidebar" : "Tampilkan Sidebar"}
+              aria-label={isSidebarVisible ? "Sembunyikan Sidebar" : "Tampilkan Sidebar"}
+            >
+              {isSidebarVisible ? (
+                <PanelLeftClose className="w-4 h-4 text-slate-500" />
+              ) : (
+                <PanelLeftOpen className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              )}
+              <span>{isSidebarVisible ? "Sembunyikan Sidebar" : "Tampilkan Sidebar"}</span>
+            </button>
+          )}
           
           <div>
             <div className="flex items-center gap-2.5 flex-wrap">
               <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
                 PETA SENADA
               </h1>
+
+              {/* Mode Badge (Admin vs Tamu) */}
+              {isAdmin ? (
+                <div 
+                  className="px-2.5 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-xs font-extrabold flex items-center gap-1.5 shadow-xs"
+                  title="Anda sedang dalam Mode Admin. Semua fitur editing & penambahan aktif."
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Mode Admin</span>
+                </div>
+              ) : (
+                <div 
+                  className="px-2.5 py-1 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs font-extrabold flex items-center gap-1.5 shadow-xs cursor-pointer hover:bg-amber-500/20 transition-colors"
+                  onClick={onOpenAdminLogin}
+                  title="Klik untuk Login Admin (Fitur View-Only Aktif)"
+                >
+                  <Eye className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Mode Tamu (View)</span>
+                </div>
+              )}
             </div>
             <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 font-medium mt-0.5 flex items-center flex-wrap gap-1.5">
               <span>Pemanfaatan Data Senada</span>
@@ -289,6 +345,31 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           )}
         </div>
+
+        {/* Admin Login / Logout Button */}
+        {isAdmin ? (
+          <button
+            id="btn-admin-logout-header"
+            type="button"
+            onClick={onLogoutAdmin}
+            className="bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 px-3.5 py-2 rounded-xl text-xs font-bold shadow-sm flex items-center gap-1.5 transition-colors cursor-pointer"
+            title="Keluar dari Mode Admin"
+          >
+            <LogOut className="w-3.5 h-3.5 text-rose-500" />
+            <span>Logout Admin</span>
+          </button>
+        ) : (
+          <button
+            id="btn-admin-login-header"
+            type="button"
+            onClick={onOpenAdminLogin}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold shadow-md shadow-emerald-500/20 flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+            title="Login sebagai Admin (senada)"
+          >
+            <Lock className="w-3.5 h-3.5 text-emerald-100" />
+            <span>Login Admin</span>
+          </button>
+        )}
 
         {/* Export CSV */}
         <button

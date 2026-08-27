@@ -70,15 +70,14 @@ function loadDashboardStateFromDisk() {
 function saveDashboardStateToDisk(state: any) {
   try {
     ensureDataDirectory();
-    const tempFile = `${STATE_FILE}.tmp.${Date.now()}`;
     const payload = JSON.stringify(state, null, 2);
-    fs.writeFileSync(tempFile, payload, 'utf-8');
-    fs.renameSync(tempFile, STATE_FILE);
+    fs.writeFileSync(STATE_FILE, payload, 'utf-8');
     cachedDashboardState = state;
     lastVersionTimestamp = state.version || Date.now();
+    console.log(`[SERVER] Saved dashboard state to disk. Version: ${lastVersionTimestamp}, Pages: ${state.pages?.length}`);
     return true;
   } catch (err) {
-    console.error('Failed to save dashboard state to disk:', err);
+    console.error('[SERVER] Failed to save dashboard state to disk:', err);
     // Fallback: update in-memory
     cachedDashboardState = state;
     lastVersionTimestamp = state.version || Date.now();

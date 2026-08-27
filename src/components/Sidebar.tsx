@@ -17,7 +17,13 @@ import {
   Plus,
   Settings,
   FolderPlus,
-  MapPin
+  MapPin,
+  ShieldCheck,
+  ShieldAlert,
+  Lock,
+  LogOut,
+  Eye,
+  PanelLeftClose
 } from 'lucide-react';
 import { SyncConfig, DatasetPreset, DashboardPage } from '../types';
 import { PRESET_DATASETS } from '../data/sampleDatasets';
@@ -42,6 +48,10 @@ interface SidebarProps {
   onOpenRowModal: () => void;
   onClearAllRows?: () => void;
   onResetDataset?: () => void;
+  isAdmin?: boolean;
+  onOpenAdminLogin?: () => void;
+  onLogoutAdmin?: () => void;
+  onToggleSidebar?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -64,6 +74,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenRowModal,
   onClearAllRows,
   onResetDataset,
+  isAdmin = false,
+  onOpenAdminLogin,
+  onLogoutAdmin,
+  onToggleSidebar,
 }) => {
   return (
     <aside 
@@ -71,18 +85,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
       className="w-64 bg-slate-900 flex flex-col text-slate-300 border-r border-slate-800 shrink-0 select-none"
     >
       {/* Brand Logo & Title */}
-      <div className="p-6 flex items-center gap-3 border-b border-slate-800/60">
-        <div className="w-9 h-9 bg-linear-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center text-white font-black text-xl shadow-md shadow-blue-900/40">
-          P
+      <div className="p-6 flex items-center justify-between gap-3 border-b border-slate-800/60">
+        <div className="flex items-center gap-3 overflow-hidden">
+          <div className="w-9 h-9 bg-linear-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center text-white font-black text-xl shadow-md shadow-blue-900/40 shrink-0">
+            P
+          </div>
+          <div className="min-w-0">
+            <span className="text-white font-extrabold tracking-tight text-lg block leading-none truncate">
+              PETA SENADA
+            </span>
+            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 mt-1 block truncate">
+              Pemanfaatan Data Senada
+            </span>
+          </div>
         </div>
-        <div>
-          <span className="text-white font-extrabold tracking-tight text-lg block leading-none">
-            PETA SENADA
-          </span>
-          <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 mt-1 block">
-            Pemanfaatan Data Senada
-          </span>
-        </div>
+
+        {onToggleSidebar && (
+          <button
+            id="btn-hide-sidebar"
+            type="button"
+            onClick={onToggleSidebar}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+            title="Sembunyikan Sidebar"
+            aria-label="Sembunyikan Sidebar"
+          >
+            <PanelLeftClose className="w-5 h-5" />
+          </button>
+        )}
       </div>
 
       {/* Navigation Links */}
@@ -200,6 +229,49 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
 
       </nav>
+
+      {/* Admin Mode Card */}
+      <div className="px-4 py-3 border-t border-slate-800 bg-slate-950/60">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {isAdmin ? (
+              <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400">
+                <ShieldCheck className="w-4 h-4" />
+              </div>
+            ) : (
+              <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400">
+                <Eye className="w-4 h-4" />
+              </div>
+            )}
+            <div>
+              <span className="text-xs font-bold text-white block">
+                {isAdmin ? 'Admin (senada)' : 'Mode Tamu'}
+              </span>
+              <span className="text-[10px] text-slate-400 block">
+                {isAdmin ? 'Akses Edit & Tambah' : 'Fitur View-Only'}
+              </span>
+            </div>
+          </div>
+
+          {isAdmin ? (
+            <button
+              onClick={onLogoutAdmin}
+              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-rose-400 transition-colors"
+              title="Logout Admin"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
+          ) : (
+            <button
+              onClick={onOpenAdminLogin}
+              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold transition-colors shadow-xs"
+              title="Login Admin"
+            >
+              Login
+            </button>
+          )}
+        </div>
+      </div>
 
       {/* Footer Real-Time Connection Status */}
       <div className="p-5 border-t border-slate-800 bg-slate-950/40">
