@@ -1,0 +1,16 @@
+{
+  "entities": {
+    "dashboard_states": {
+      "title": "Dashboard State",
+      "description": "Stores the entire dashboard pages, uploaded datasets, charts, and configuration data.",
+      "type": "object",
+      "properties": {
+        "activePageId": { "type": "string" },
+        "pages": { "type": "array" },
+        "updatedAt": { "type": "string" },
+        "version": { "type": "number" }
+      },
+      "required": ["pages", "activePageId"]
+    }
+  }
+}

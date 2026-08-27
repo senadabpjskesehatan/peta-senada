@@ -26,6 +26,9 @@ import { IndonesiaMapCard } from './components/IndonesiaMapCard';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { ToastContainer, ToastMessage } from './components/Toast';
 import { getStateFromLocation, generateShareableUrl } from './utils/shareUtils';
+import { saveLocalDashboardState, getLocalDashboardState } from './utils/storage';
+import { saveFirebaseDashboardState, getFirebaseDashboardState } from './utils/firebaseStorage';
+import { db, doc, onSnapshot } from './lib/firebase';
 
 const STORAGE_KEY_PAGES = 'peta_senada_dashboard_pages_v1';
 const STORAGE_KEY_ACTIVE_PAGE = 'peta_senada_active_page_id_v1';
@@ -188,44 +191,123 @@ export default function App() {
     return found || pages[0] || createDefaultPage();
   }, [pages, activePageId]);
 
-  // Keep localStorage updated
+  // Keep IndexedDB & localStorage updated on every page change
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY_PAGES, JSON.stringify(pages));
-      localStorage.setItem(STORAGE_KEY_ACTIVE_PAGE, activePage.id);
-    } catch (e) {}
+    saveLocalDashboardState(pages, activePage.id, localVersionTimestamp.current);
   }, [pages, activePage.id]);
 
-  // 1. Initial Load from Server (Cross-Network Master State)
+  // Function to save state to Firebase Firestore, Local Storage, and Server
+  const saveStateToServer = async (pagesToSave: DashboardPage[], activeId: string) => {
+    try {
+      setCloudSyncStatus('saving');
+      
+      // 1. Save locally to IndexedDB & localStorage
+      await saveLocalDashboardState(pagesToSave, activeId, localVersionTimestamp.current);
+
+      // 2. Save directly to Firebase Firestore
+      await saveFirebaseDashboardState(pagesToSave, activeId, localVersionTimestamp.current);
+
+      // 3. Save to server disk endpoint
+      const res = await fetch('/api/dashboard/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        keepalive: true,
+        body: JSON.stringify({
+          pages: pagesToSave,
+          activePageId: activeId,
+          updatedBy: 'client',
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.version) {
+          localVersionTimestamp.current = data.version;
+          saveLocalDashboardState(pagesToSave, activeId, data.version);
+          saveFirebaseDashboardState(pagesToSave, activeId, data.version);
+        }
+      }
+
+      setLastSyncedTime(new Date().toLocaleTimeString('id-ID'));
+      setCloudSyncStatus('synced');
+    } catch (err) {
+      console.warn('Save state error:', err);
+      setCloudSyncStatus('error');
+    }
+  };
+
+  // 1. Initial Load from Firebase Firestore, Local Storage, and Server
   useEffect(() => {
     let isMounted = true;
-    const fetchServerState = async () => {
+
+    const initializeState = async () => {
       try {
         setCloudSyncStatus('syncing');
-        const res = await fetch('/api/dashboard/state');
-        if (!res.ok) throw new Error('Gagal menghubungi server');
-        const data = await res.json();
-        
-        if (isMounted && data.success) {
-          if (data.pages && Array.isArray(data.pages) && data.pages.length > 0) {
-            isReceivingServerUpdate.current = true;
-            setPages(data.pages);
-            if (data.activePageId) {
-              setActivePageId(data.activePageId);
-            }
-            localVersionTimestamp.current = data.version || Date.now();
-            setLastSyncedTime(new Date().toLocaleTimeString('id-ID'));
-            setCloudSyncStatus('synced');
-            setTimeout(() => {
-              isReceivingServerUpdate.current = false;
-            }, 300);
-          } else {
-            // Server is empty -> Push our current pages to server so other networks can access immediately
-            await saveStateToServer(pages, activePageId);
-          }
+
+        // Parallel fetch from Firebase Firestore, IndexedDB, and Server
+        const [firebaseState, localState, serverRes] = await Promise.all([
+          getFirebaseDashboardState().catch(() => null),
+          getLocalDashboardState().catch(() => null),
+          fetch('/api/dashboard/state').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        ]);
+
+        if (!isMounted) return;
+
+        // Compare available states by version timestamp
+        const candidates: { pages: DashboardPage[]; activePageId: string; version: number; source: string }[] = [];
+
+        if (firebaseState && Array.isArray(firebaseState.pages) && firebaseState.pages.length > 0) {
+          candidates.push({
+            pages: firebaseState.pages,
+            activePageId: firebaseState.activePageId || 'page-1',
+            version: firebaseState.version || 0,
+            source: 'firebase',
+          });
         }
+
+        if (localState && Array.isArray(localState.pages) && localState.pages.length > 0) {
+          candidates.push({
+            pages: localState.pages,
+            activePageId: localState.activePageId || 'page-1',
+            version: localState.version || 0,
+            source: 'local',
+          });
+        }
+
+        if (serverRes && serverRes.success && Array.isArray(serverRes.pages) && serverRes.pages.length > 0) {
+          candidates.push({
+            pages: serverRes.pages,
+            activePageId: serverRes.activePageId || 'page-1',
+            version: serverRes.version || 0,
+            source: 'server',
+          });
+        }
+
+        if (candidates.length > 0) {
+          // Sort candidates descending by version
+          candidates.sort((a, b) => b.version - a.version);
+          const best = candidates[0];
+
+          isReceivingServerUpdate.current = true;
+          setPages(best.pages);
+          if (best.activePageId) setActivePageId(best.activePageId);
+          localVersionTimestamp.current = best.version || Date.now();
+
+          // Sync best data to all layers
+          saveLocalDashboardState(best.pages, best.activePageId, best.version);
+          saveFirebaseDashboardState(best.pages, best.activePageId, best.version);
+        } else {
+          // All empty -> save initial default page to Firebase & local & server
+          await saveStateToServer(pages, activePageId);
+        }
+
+        setLastSyncedTime(new Date().toLocaleTimeString('id-ID'));
+        setCloudSyncStatus('synced');
+        setTimeout(() => {
+          if (isMounted) isReceivingServerUpdate.current = false;
+        }, 300);
       } catch (err) {
-        console.warn('Initial server state fetch warning:', err);
+        console.warn('State initialization warning:', err);
         if (isMounted) setCloudSyncStatus('synced');
       } finally {
         if (isMounted) {
@@ -234,37 +316,46 @@ export default function App() {
       }
     };
 
-    fetchServerState();
+    initializeState();
     return () => {
       isMounted = false;
     };
   }, []);
 
-  // Function to save state to server
-  const saveStateToServer = async (pagesToSave: DashboardPage[], activeId: string) => {
+  // Real-time Firestore listener for multi-device live sync
+  useEffect(() => {
+    let unsubscribe: (() => void) | null = null;
     try {
-      setCloudSyncStatus('saving');
-      const res = await fetch('/api/dashboard/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          pages: pagesToSave,
-          activePageId: activeId,
-          updatedBy: 'client'
-        }),
+      const docRef = doc(db, 'dashboard_states', 'master');
+      unsubscribe = onSnapshot(docRef, (docSnap) => {
+        if (docSnap.exists() && isInitialServerLoadDone.current) {
+          const data = docSnap.data();
+          if (data && Array.isArray(data.pages) && data.pages.length > 0) {
+            const remoteVersion = data.version || 0;
+            if (remoteVersion > localVersionTimestamp.current) {
+              isReceivingServerUpdate.current = true;
+              localVersionTimestamp.current = remoteVersion;
+              setPages(data.pages);
+              if (data.activePageId) setActivePageId(data.activePageId);
+              saveLocalDashboardState(data.pages, data.activePageId, remoteVersion);
+              setLastSyncedTime(new Date().toLocaleTimeString('id-ID'));
+              setTimeout(() => {
+                isReceivingServerUpdate.current = false;
+              }, 300);
+            }
+          }
+        }
+      }, (error) => {
+        console.warn('Firebase snapshot listener warning:', error);
       });
-      if (!res.ok) throw new Error('Gagal menyimpan status ke server');
-      const data = await res.json();
-      if (data.version) {
-        localVersionTimestamp.current = data.version;
-      }
-      setLastSyncedTime(new Date().toLocaleTimeString('id-ID'));
-      setCloudSyncStatus('synced');
-    } catch (err) {
-      console.warn('Save to server error:', err);
-      setCloudSyncStatus('error');
+    } catch (e) {
+      console.warn('Failed to attach Firebase snapshot listener:', e);
     }
-  };
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
 
   // 2. Debounced Auto-Save to Server whenever pages or activePageId change (Autosave to Public Cloud)
   useEffect(() => {
@@ -279,13 +370,16 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [pages, activePageId]);
 
-  // Update URL Hash with compressed state so copied browser URLs work on any device/network
+  // Update URL Hash with compressed state for small datasets (avoid hash overhead for >100 rows)
   useEffect(() => {
     const timer = setTimeout(() => {
       try {
-        const fullUrl = generateShareableUrl(pages, activePage.id);
-        if (fullUrl && typeof window !== 'undefined') {
-          window.history.replaceState(null, '', fullUrl);
+        const totalRows = pages.reduce((acc, p) => acc + (p.rows?.length || 0), 0);
+        if (totalRows <= 150) {
+          const fullUrl = generateShareableUrl(pages, activePage.id);
+          if (fullUrl && typeof window !== 'undefined') {
+            window.history.replaceState(null, '', fullUrl);
+          }
         }
       } catch (e) {}
     }, 800);

@@ -69,25 +69,6 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           
-          {/* Preset Helper Card */}
-          <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-3.5 flex items-start justify-between gap-3">
-            <div className="text-xs space-y-1">
-              <span className="text-[10px] uppercase font-extrabold text-blue-600 dark:text-blue-400 tracking-wider block">
-                Kredensial Admin Resmi
-              </span>
-              <p className="text-slate-700 dark:text-slate-300 font-mono text-[11px]">
-                User: <strong className="text-slate-900 dark:text-white">senada</strong> | Pass: <strong className="text-slate-900 dark:text-white">150bisa</strong>
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={handleQuickFill}
-              className="px-2.5 py-1 rounded-lg bg-blue-100 dark:bg-blue-900/50 hover:bg-blue-200 text-blue-700 dark:text-blue-300 text-[11px] font-bold transition-colors cursor-pointer shrink-0"
-            >
-              Isi Otomatis
-            </button>
-          </div>
-
           {errorMsg && (
             <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-xl text-rose-700 dark:text-rose-300 text-xs font-semibold flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
@@ -106,7 +87,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="Masukkan username (senada)"
+                placeholder="Masukkan username"
                 required
                 className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
               />
@@ -124,7 +105,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Masukkan password (150bisa)"
+                placeholder="Masukkan password"
                 required
                 className="w-full pl-10 pr-12 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
               />
