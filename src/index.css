@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+/* Leaflet Custom Tooltip & Spoiler Styling */
+.leaflet-tooltip.map-spoiler-tooltip {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+.leaflet-tooltip.map-spoiler-tooltip::before {
+  display: none !important;
+}

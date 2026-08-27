@@ -1,0 +1,6 @@
+{
+  "name": "PETA SENADA",
+  "description": "Pemanfaatan Data Senada - Visualisasi dan analisis data interaktif terintegrasi Google Sheets, File Excel, dan Sinkronisasi Multi-Jaringan Cloud.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
